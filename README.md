@@ -11,13 +11,13 @@ Environnement de simulation d'un bateau autonome basé sur [VRX](https://github.
 - Le workspace compilé :
 
 ```bash
-cd ~/Devs/Simulation_drone_cible/training_zone
-colcon build --merge-install
+git clone https://github.com/guivarchVauban/training_zone
+cd training_zone
+colcon build
 source install/setup.bash
 ```
 
-> Relancer `colcon build` + `source install/setup.bash` après toute modification de fichier Python (`.py`) dans `vrx_gz/src/` ou `vrx_gz/scripts/`.
-> ou des fichiers `.sdf` (monde)
+> Relancer `colcon build` + `source install/setup.bash` après toute modification de fichier Python (`.py`) dans `vrx_gz/src/` ou `vrx_gz/scripts/`  ou des fichiers `.sdf` (monde)
 
 ---
 
@@ -184,7 +184,7 @@ Fichier : `vrx_gz/worlds/brest_coast.sdf`
   <!-- yaw=0                    = proue face au WAM-V     -->
 ```
 
-> Pas de recompilation nécessaire.
+
 
 ### Changer les topics des capteurs
 
