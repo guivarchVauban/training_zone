@@ -1,0 +1,11 @@
+.DS_Store
+*.swp
+*.orig
+*.*~
+*.pyc
+__pycache__/
+
+# ROS2 / colcon build artifacts
+build/
+install/
+log/

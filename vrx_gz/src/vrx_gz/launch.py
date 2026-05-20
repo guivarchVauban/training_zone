@@ -1,0 +1,181 @@
+# Copyright 2022 Open Source Robotics Foundation, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from ament_index_python.packages import get_package_share_directory
+
+from launch.actions import GroupAction
+from launch.actions import IncludeLaunchDescription
+from launch.actions import RegisterEventHandler
+from launch.event_handlers import OnProcessExit
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from launch.actions import ExecuteProcess, EmitEvent
+from launch.events import Shutdown
+
+from launch_ros.actions import Node
+from launch_ros.actions import PushRosNamespace
+
+import vrx_gz.bridges
+
+import os
+
+
+def simulation(world_name, headless=False, paused=False, extra_gz_args=''):
+    gz_args = ['-v 4']
+    if not paused:
+        gz_args.append('-r')
+
+    if headless:
+        gz_args.append('-s')
+
+    gz_args.append(extra_gz_args)
+
+    gz_args.append(f'{world_name}.sdf')
+
+    gz_sim = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([os.path.join(
+            get_package_share_directory('ros_gz_sim'), 'launch'),
+            '/gz_sim.launch.py']),
+        launch_arguments={'gz_args': ' '.join(gz_args)}.items())
+
+    # Register handler for shutting down ros launch when ign gazebo process exits
+    # monitor_sim.py will run until it can not find the ign gazebo process.
+    # Once monitor_sim.py exits, a process exit event is triggered which causes the
+    # handler to emit a Shutdown event
+    p = os.path.join(get_package_share_directory('vrx_ros'), 'launch',
+                     'monitor_sim.py')
+    monitor_sim_proc = ExecuteProcess(
+        cmd=['python3', p],
+        name='monitor_sim',
+        output='screen',
+    )
+    sim_exit_event_handler = RegisterEventHandler(
+        OnProcessExit(
+            target_action=monitor_sim_proc,
+            on_exit=[
+                EmitEvent(event=Shutdown(reason='Simulation ended'))
+            ]
+        )
+    )
+
+    return [gz_sim, monitor_sim_proc, sim_exit_event_handler]
+
+
+def competition_bridges(world_name, competition_mode=False):
+    bridges = [
+        vrx_gz.bridges.clock(),
+        vrx_gz.bridges.task_info(),
+    ]
+
+    if not competition_mode:
+        bridges.extend([
+            vrx_gz.bridges.usv_wind_speed(),
+            vrx_gz.bridges.usv_wind_direction()
+        ])
+
+    nodes = []
+    nodes.append(Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        output='screen',
+        arguments=[bridge.argument() for bridge in bridges],
+        remappings=[bridge.remapping() for bridge in bridges],
+    ))
+    return nodes
+
+
+def spawn(sim_mode, world_name, models, robot=None):
+    if type(models) != list:
+        models = [models]
+    use_sim_time = LaunchConfiguration('use_sim_time', default='true')
+    DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='true',
+        description='Use simulation (Gazebo) clock if true'),
+
+    launch_processes = []
+    for model in models:
+        if robot and model.model_name != robot:
+            continue
+
+        # Script to insert model in running simulation
+        if sim_mode == 'full' or sim_mode == 'sim':
+            gz_spawn_entity = Node(
+                package='ros_gz_sim',
+                executable='create',
+                output='screen',
+                arguments=model.spawn_args()
+            )
+            launch_processes.append(gz_spawn_entity)
+
+        if sim_mode == 'full' or sim_mode == 'bridge':
+            bridges, nodes, custom_launches = model.bridges(world_name)
+
+            payload = model.payload_bridges(world_name)
+            payload_bridges = payload[0]
+            payload_nodes = payload[1]
+            payload_launches = payload[2]
+
+            bridges.extend(payload_bridges)
+            nodes.extend(payload_nodes)
+
+            nodes.append(Node(
+                package='ros_gz_bridge',
+                executable='parameter_bridge',
+                output='screen',
+                arguments=[bridge.argument() for bridge in bridges],
+                remappings=[bridge.remapping() for bridge in bridges],
+            ))
+
+            # tf broadcaster (sensors)
+            nodes.append(Node(
+                package='vrx_ros',
+                executable='pose_tf_broadcaster',
+                output='screen',
+            ))
+
+            # robot_state_publisher (tf for wamv)
+            model_dir = os.path.join(get_package_share_directory('vrx_gazebo'), 'models/wamv/tmp')
+            urdf_file = os.path.join(model_dir, 'model.urdf')
+            with open(urdf_file, 'r') as infp:
+                robot_desc = infp.read()
+            params = {'use_sim_time': use_sim_time, 'frame_prefix': 'wamv/', 'robot_description': robot_desc}
+            nodes.append(Node(package='robot_state_publisher',
+                                  executable='robot_state_publisher',
+                                  output='both',
+                                  parameters=[params],
+                                  remappings=[('/joint_states', '/wamv/joint_states')]))
+
+            group_action = GroupAction([
+                PushRosNamespace(model.model_name),
+                *nodes
+            ])
+
+            if sim_mode == 'full':
+                handler = RegisterEventHandler(
+                    event_handler=OnProcessExit(
+                        target_action=gz_spawn_entity,
+                        on_exit=[group_action],
+                    )
+                )
+                launch_processes.append(handler)
+            elif sim_mode == 'bridge':
+                launch_processes.append(group_action)
+
+            launch_processes.extend(payload_launches)
+            launch_processes.extend(custom_launches)
+
+    return launch_processes
