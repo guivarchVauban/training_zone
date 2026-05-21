@@ -100,7 +100,7 @@ ros2 topic pub /cmd_vel geometry_msgs/msg/Twist \
 
 | Topic | Type | Description |
 |-------|------|-------------|
-| `/gps/fix` | `sensor_msgs/NavSatFix` | Position GPS (latitude, longitude) |
+| `/fix` | `sensor_msgs/NavSatFix` | Position GPS (latitude, longitude) |
 | `/imu/data` | `sensor_msgs/Imu` | Centrale inertielle (orientation, accélération) |
 | `/image_raw` | `sensor_msgs/Image` | Image caméra frontale |
 | `/camera_info` | `sensor_msgs/CameraInfo` | Paramètres intrinsèques de la caméra |
