@@ -117,7 +117,7 @@ def navsat(world_name, model_name, link_name, sensor_name):
     ros_sensor_prefix = ros_prefix('', 'gps')
     return Bridge(
         gz_topic=f'{gz_sensor_prefix}/navsat',
-        ros_topic='/gps/fix',
+        ros_topic='/fix',
         gz_type='gz.msgs.NavSat',
         ros_type='sensor_msgs/msg/NavSatFix',
         direction=BridgeDirection.GZ_TO_ROS)
